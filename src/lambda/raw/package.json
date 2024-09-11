@@ -1,0 +1,24 @@
+{
+  "name": "recommendation_raw_processing",
+  "version": "1.0.0",
+  "description": "Extract Data from Excel file to put into 3 CSV files",
+  "main": "index.ts",
+  "scripts": {
+    "build": "webpack",
+    "zip": "zip -r dist/deployment-package.zip build/*"
+  },
+  "dependencies": {
+    "aws-lambda": "^1.0.7",
+    "aws-sdk": "^2.1691.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.5.4",
+    "esbuild": "^0.23.1",
+    "ts-loader": "^9.2.6",
+    "typescript": "^5.6.2",
+    "webpack": "^5.64.4",
+    "webpack-cli": "^4.9.1"
+  }
+}
