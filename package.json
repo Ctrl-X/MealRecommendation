@@ -6,8 +6,9 @@
   },
   "scripts": {
     "build:rawlambda": "cd src/lambda/raw && npm install && npm run build",
+    "build:formatedlambda": "cd src/lambda/formated && npm install && npm run build",
     "build:cdk": "tsc",
-    "build": "npm run build:rawlambda && npm run build:cdk" ,
+    "build": "npm run build:rawlambda && npm run build:formatedlambda && npm run build:cdk" ,
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk"

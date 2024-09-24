@@ -1,12 +1,12 @@
 {
-  "name": "recommendation_raw_processing",
+  "name": "recommendation_formated_processing",
   "version": "1.0.0",
-  "description": "Extract Data from Excel file to put into 3 CSV files",
-  "main": "index.ts",
+  "description": "Format data from files to produce curated files",
   "scripts": {
     "build": "webpack"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.654.0",
     "aws-lambda": "^1.0.7",
     "aws-sdk": "^2.1691.0",
     "xlsx": "^0.18.5"

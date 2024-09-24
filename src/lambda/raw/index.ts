@@ -28,8 +28,8 @@ export const handler: S3Handler = async (event) => {
 
             const workbook = XLSX.read(data.Body as Buffer, {type: 'buffer'});
 
-            const sheets = ['menus', 'users', 'user_choices', 'meal_customer ratings'];
-            const csvFiles = ['menus.csv', 'users.csv', 'user_choices.csv', 'user_rating.csv'];
+            const sheets = ['menus', 'users', 'user_choices','user_ingredient_preferences', 'meal_customer ratings'];
+            const csvFiles = ['menus.csv', 'users.csv', 'user_choices.csv','user_ingredient_preferences.csv', 'user_rating.csv'];
 
             for (let i = 0; i < sheets.length; i++) {
                 const sheetName = sheets[i];
@@ -43,15 +43,18 @@ export const handler: S3Handler = async (event) => {
                         case 'menus':
                             csvData = formatMenus(worksheet);
                             break;
-                        case 'users':
-                            csvData = formatUsers(worksheet);
-                            break;
-                        case 'meal_customer ratings':
-                            csvData = formatMealCustomerRatings(worksheet);
-                            break;
-                        case 'user_choices':
-                            csvData = formatUserChoices(worksheet);
-                            break;
+                        // case 'users':
+                        //     csvData = formatUsers(worksheet);
+                        //     break;
+                        // case 'meal_customer ratings':
+                        //     csvData = formatMealCustomerRatings(worksheet);
+                        //     break;
+                        // case 'user_choices':
+                        //     csvData = formatUserChoices(worksheet);
+                        //     break;
+                        // case 'user_ingredient_preferences':
+                        //     csvData = formatUserIngredientsPreference(worksheet);
+                        //     break;
                         default:
                             console.log(`No formatting function for sheet: ${sheetName}`);
                             continue;
@@ -131,7 +134,7 @@ function formatMenus(worksheet: XLSX.WorkSheet): string {
     const dateIndices = indicesToKeep.map((index, i) => dateColumns.includes(finalHeaders[index]) ? i : -1).filter(index => index !== -1);
 
     // Filter and rename the data using reduce
-    const filteredData = jsonData.reduce((acc: any[][], row, rowIndex) => {
+    const processedData = jsonData.reduce((acc: any[][], row, rowIndex) => {
         if (rowIndex === 1) return acc; // Skip the second row
 
         if (rowIndex === 0) {
@@ -145,7 +148,7 @@ function formatMenus(worksheet: XLSX.WorkSheet): string {
     }, []);
 
     // Convert the filtered data back to a CSV string
-    const csvData = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(filteredData));
+    const csvData = processedData.map(row => row.join('\t')).join('\n');
 
     return csvData;
 }
@@ -181,7 +184,7 @@ function formatUsers(worksheet: XLSX.WorkSheet): string {
 
 
     // Filter the data to keep only the desired columns and convert dates
-    const filteredData = jsonData.map((row, rowIndex) => {
+    const processedData = jsonData.map((row, rowIndex) => {
         if (rowIndex === 0)
             return indicesToKeep.map(index => row[index]); // Return header row as is
 
@@ -190,7 +193,7 @@ function formatUsers(worksheet: XLSX.WorkSheet): string {
     });
 
     // Convert the filtered data back to a CSV string
-    const csvData = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(filteredData));
+    const csvData = processedData.map(row => row.join('\t')).join('\n');
 
     return csvData;
 }
@@ -218,7 +221,8 @@ function formatMealCustomerRatings(worksheet: XLSX.WorkSheet): string {
         }
     });
 
-    const csvData = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(processedData));
+    const csvData = processedData.map(row => row.join('\t')).join('\n');
+
     return csvData;
 }
 
@@ -242,8 +246,20 @@ function formatUserChoices(worksheet: XLSX.WorkSheet): string {
     });
 
     // Convert the processed data back to a CSV string
-    const csvData = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(processedData));
+    const csvData = processedData.map(row => row.join('\t')).join('\n');
 
+    return csvData;
+}
+
+function formatUserIngredientsPreference(worksheet: XLSX.WorkSheet): string {
+    // Convert the worksheet to JSON to easily manipulate the data
+    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
+
+    // Process the data rows using map
+    const processedData = jsonData.map(row => row.join('\t'));
+
+    // Join the processed rows back into a single CSV string with tabs as separators
+    const csvData = processedData.join('\n');
     return csvData;
 }
 
