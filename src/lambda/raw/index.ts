@@ -28,47 +28,68 @@ export const handler: S3Handler = async (event) => {
 
             const workbook = XLSX.read(data.Body as Buffer, {type: 'buffer'});
 
-            const sheets = ['menus', 'users', 'user_choices','user_ingredient_preferences', 'meal_customer ratings'];
-            const csvFiles = ['menus.csv', 'users.csv', 'user_choices.csv','user_ingredient_preferences.csv', 'user_rating.csv'];
+            const sheets = ['menus', 'users', 'user_choices', 'user_ingredient_preferences', 'meal_customer ratings'];
+            const csvFiles = ['menus.csv', 'users.csv', 'user_choices.csv', 'user_ingredient_preferences.csv', 'user_rating.csv'];
 
+            let interactionData: string | null = null
             for (let i = 0; i < sheets.length; i++) {
                 const sheetName = sheets[i];
-                const csvFileName = csvFiles[i];
+                let csvFileName: string | null = csvFiles[i];
+
 
                 if (workbook.SheetNames.includes(sheetName)) {
                     const worksheet = workbook.Sheets[sheetName];
-                    let csvData: string;
+                    let csvData: string | null = null;
 
                     switch (sheetName) {
                         case 'menus':
                             csvData = formatMenus(worksheet);
                             break;
-                        // case 'users':
-                        //     csvData = formatUsers(worksheet);
-                        //     break;
-                        // case 'meal_customer ratings':
-                        //     csvData = formatMealCustomerRatings(worksheet);
-                        //     break;
-                        // case 'user_choices':
-                        //     csvData = formatUserChoices(worksheet);
-                        //     break;
-                        // case 'user_ingredient_preferences':
-                        //     csvData = formatUserIngredientsPreference(worksheet);
-                        //     break;
+                        case 'users':
+                            csvData = formatUsers(worksheet);
+                            break;
+                        case 'meal_customer ratings':
+                            csvFileName = null
+                            const data = formatMealCustomerRatings(worksheet);
+                            if (interactionData) {
+                                interactionData = interactionData + "\n" + data
+                                csvData = interactionData
+                                csvFileName = "rating.csv"
+                            } else {
+                                interactionData = data
+                            }
+                            break;
+                        case 'user_choices':
+                            csvFileName = null
+                            const data2 = formatUserChoices(worksheet);
+                            if (interactionData) {
+                                interactionData = interactionData + "\n" + data2
+                                csvData = interactionData
+                                csvFileName = "rating.csv"
+                            } else {
+                                interactionData = data2
+                            }
+                            break;
+                        case 'user_ingredient_preferences':
+                            csvData = formatUserIngredientsPreference(worksheet);
+                            break;
                         default:
                             console.log(`No formatting function for sheet: ${sheetName}`);
+                            csvFileName = null
                             continue;
                     }
 
-                    const uploadParams = {
-                        Bucket: bucket,
-                        Key: `data/formated/${csvFileName}`,
-                        Body: csvData,
-                        ContentType: 'text/csv',
-                    };
+                    if (csvFileName && csvData) {
 
-                    await s3.putObject(uploadParams).promise();
-                    console.log(`Uploaded ${csvFileName} to ${bucket}/data/formated`);
+                        const uploadParams = {
+                            Bucket: bucket,
+                            Key: `data/formated/${csvFileName}`,
+                            Body: csvData,
+                            ContentType: 'text/csv',
+                        };
+                        await s3.putObject(uploadParams).promise();
+                        console.log(`Uploaded ${csvFileName} to ${bucket}/data/formated`);
+                    }
                 } else {
                     console.log(`Sheet ${sheetName} not found in the Excel file.`);
                 }
@@ -113,7 +134,7 @@ function formatMenus(worksheet: XLSX.WorkSheet): string {
     // Define the headers you want to keep and their new names
     const headersToKeep: Record<string, string> = {
         "Menu ID": "menu_id",
-        "Menu Start Date": "Menu Start Date",
+        "Menu Start Date": "CREATION_TIMESTAMP",
         "Item Id": "ITEM_ID",
         "Meal Id": "meal_id",
         "Meal(En)": "Meal",
@@ -203,57 +224,79 @@ function formatUsers(worksheet: XLSX.WorkSheet): string {
 function formatMealCustomerRatings(worksheet: XLSX.WorkSheet): string {
     const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
     const headerRow = jsonData[0] as string[];
-    const dateColumnIndex = headerRow.indexOf("date");
 
-    if (dateColumnIndex === -1) {
-        throw new Error('The "date" column was not found in the worksheet.');
+    // Find indices of required columns
+    const userIdIndex = headerRow.indexOf("user_id");
+    const menuItemIdIndex = headerRow.indexOf("menu_item_id");
+    const ratingIndex = headerRow.indexOf("rating");
+    const dateIndex = headerRow.indexOf("date");
+
+    if (userIdIndex === -1 || menuItemIdIndex === -1 || ratingIndex === -1 || dateIndex === -1) {
+        throw new Error('One or more required columns were not found in the worksheet.');
     }
 
-    const processedData = jsonData.map((row, rowIndex) => {
-        if (rowIndex === 0) {
-            return row;
-        } else {
-            const newRow = row.slice();
-            if (newRow[dateColumnIndex]) {
-                newRow[dateColumnIndex] = dateStrToUnix(newRow[dateColumnIndex]);
-            }
-            return newRow;
-        }
+    // Create new header row
+    const newHeader = ["USER_ID", "ITEM_ID", "EVENT_TYPE", "EVENT_VALUE", "TIMESTAMP"];
+
+    // Process the data rows
+    const processedData = jsonData.slice(1).map(row => {
+        return [
+            row[userIdIndex],
+            row[menuItemIdIndex],
+            "Watch",
+            row[ratingIndex]*20,
+            dateStrToUnix(row[dateIndex])
+        ];
     });
 
-    const csvData = processedData.map(row => row.join('\t')).join('\n');
+    // Combine header and processed data
+    const finalData = [newHeader, ...processedData];
 
-    return csvData;
+    // Convert the processed data back to a CSV string
+    const csvData = finalData.map(row => row.join(','))
+    return csvData.join('\n');
 }
 
 // Function to format the "user_choices" sheet
 function formatUserChoices(worksheet: XLSX.WorkSheet): string {
-    // Convert the worksheet to JSON to easily manipulate the data
     const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
-
-    // Extract the header row and find the indices of the columns to convert
     const headerRow = jsonData[0] as string[];
-    const dateColumns = ['created_at', 'updated_at'];
-    const dateIndices = dateColumns.map(header => headerRow.indexOf(header)).filter(index => index !== -1);
 
-    // Process the data rows, converting the date columns using map
-    const processedData = jsonData.map((row, rowIndex) => {
-        if (rowIndex === 0) {
-            return row; // Return header row as is
-        } else {
-            return convertDatesToUnix(row, dateIndices);
-        }
+    // Find indices of required columns
+    const userIdIndex = headerRow.indexOf("user_id");
+    const menuItemIdIndex = headerRow.indexOf("menu_item_id");
+    const manualIndex = headerRow.indexOf("manual");
+    const createdAtIndex = headerRow.indexOf("created_at");
+
+    if (userIdIndex === -1 || menuItemIdIndex === -1 || manualIndex === -1 || createdAtIndex === -1) {
+        throw new Error('One or more required columns were not found in the worksheet.');
+    }
+
+    // Create new header row
+    const newHeader = ["USER_ID", "ITEM_ID", "EVENT_TYPE", "EVENT_VALUE", "TIMESTAMP"];
+
+    // Process the data rows
+    const processedData = jsonData.slice(1).filter(row => row[manualIndex] === '1').map(row => {
+        return [
+            row[userIdIndex],
+            row[menuItemIdIndex],
+            "Click",
+            "1",
+            dateStrToUnix(row[createdAtIndex])
+        ];
     });
 
-    // Convert the processed data back to a CSV string
-    const csvData = processedData.map(row => row.join('\t')).join('\n');
+    // Combine header and processed data
+    const finalData = [newHeader, ...processedData];
 
+    // Convert the processed data back to a CSV string
+    const csvData = finalData.map(row => row.join(',')).join('\n');
     return csvData;
 }
 
 function formatUserIngredientsPreference(worksheet: XLSX.WorkSheet): string {
     // Convert the worksheet to JSON to easily manipulate the data
-    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
+    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
 
     // Process the data rows using map
     const processedData = jsonData.map(row => row.join('\t'));

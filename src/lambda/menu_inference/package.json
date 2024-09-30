@@ -1,0 +1,19 @@
+{
+  "name": "menu_inference",
+  "version": "1.0.0",
+  "description": "Menu inference using pinecone database",
+  "main": "index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "J. Coupez",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.658.1",
+    "@pinecone-database/pinecone": "^3.0.3",
+    "aws-lambda": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145"
+  }
+}

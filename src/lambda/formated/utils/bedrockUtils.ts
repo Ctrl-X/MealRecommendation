@@ -8,7 +8,7 @@ const { ApplyGuardrailCommand } = require("@aws-sdk/client-bedrock")
 async function callBedrock(prompt:string, dataset: string,  modelId: string = "anthropic.claude-3-haiku-20240307-v1:0") {
 
     // modelId= "anthropic.claude-3-sonnet-20240229-v1:0",
-    // modelId= "anthropic.claude-3-5-sonnet-20240620-v1:00",
+    //modelId= "anthropic.claude-3-5-sonnet-20240620-v1:0";
     // prepare Claude 3 prompt
     const params = {
         modelId: modelId,

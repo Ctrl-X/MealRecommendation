@@ -32,6 +32,9 @@ export const handler: S3Handler = async (event) => {
             } else if (key.includes('users.csv')) {
                 csvData = users.curatingData(data.Body.toString());
                 destFilename = "users.csv"
+            }  else if (key.includes('rating.csv')) {
+                csvData = data.Body.toString();
+                destFilename = "rating.csv"
             } else {
                 console.log(`Unsupported file: ${key}`);
                 continue;

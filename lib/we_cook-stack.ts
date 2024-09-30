@@ -7,10 +7,21 @@ import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import * as path from 'path';
 import * as fs from 'fs';
 import {Bucket} from "aws-cdk-lib/aws-s3";
+
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as glue from 'aws-cdk-lib/aws-glue';
+import * as sagemaker from 'aws-cdk-lib/aws-sagemaker';
+import {PhysicalName} from "aws-cdk-lib";
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+
+
+
+import {PolicyStatement} from "aws-cdk-lib/aws-iam";
+import {Duration} from "aws-cdk-lib";
 
 export class WeCookStack extends cdk.Stack {
+    public readonly mealRecommendationBucket: s3.Bucket;
+
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
 
@@ -19,7 +30,7 @@ export class WeCookStack extends cdk.Stack {
         const bucketName = `meal-recommendation-${accountId}`;
 
         // Create  the S3 bucket to hold CSV files
-        const bucket = new s3.Bucket(this, 'MealRecommendationBucket', {
+        this.mealRecommendationBucket = new s3.Bucket(this, 'MealRecommendationBucket', {
             bucketName: bucketName,
             removalPolicy: cdk.RemovalPolicy.DESTROY,
             autoDeleteObjects: true,
@@ -42,73 +53,22 @@ export class WeCookStack extends cdk.Stack {
         // Deploy the folders to S3
         new s3deploy.BucketDeployment(this, 'CSVFolders', {
             sources: [s3deploy.Source.asset(tempDir)],
-            destinationBucket: bucket,
+            destinationBucket: this.mealRecommendationBucket,
             destinationKeyPrefix: "data"
         });
 
         // Clean up temporary files after deployment
         fs.rmSync(tempDir, {recursive: true, force: true});
 
-        this.addDataLakeProcessingLambda( bucket, 'raw');
-        this.addDataLakeProcessingLambda(bucket, 'formated');
-
-        // TODO : regarder le formated lambda et continuer le travail pour finir sur le curated
+        this.addDataLakeProcessingLambda( this.mealRecommendationBucket, 'raw');
+        this.addDataLakeProcessingLambda(this.mealRecommendationBucket, 'formated');
 
 
-        //
-        //
-        //
-        //
-        // // Create IAM role for Glue
-        // const glueRole = new iam.Role(this, 'GlueETLRole', {
-        //     assumedBy: new iam.ServicePrincipal('glue.amazonaws.com'),
-        //     description: 'IAM role for Glue ETL job',
-        // });
-        //
-        //
-        //
-        // // Grant necessary permissions to the Glue role
-        // glueRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSGlueServiceRole'));
-        // bucket.grantReadWrite(glueRole);
-        //
-        // // Create Glue Database
-        // const glueDatabase = new glue.CfnDatabase(this, 'MealRecommendationDB', {
-        //     catalogId: this.account,
-        //     databaseInput: {
-        //         name: 'meal_recommendation_db',
-        //         description: 'Database for meal recommendation data',
-        //     },
-        // });
-        //
-        //
-        //
-        // // Create Glue Crawler
-        // const glueCrawler = new glue.CfnCrawler(this, 'MealRecommendationCrawler', {
-        //     name: 'meal-recommendation-crawler',
-        //     role: glueRole.roleArn,
-        //     databaseName: glueDatabase.ref,
-        //     targets: {
-        //         s3Targets: [
-        //             {
-        //                 path: `s3://${bucket.bucketName}/data/raw/`,
-        //                 exclusions: ['**/.dummy'],
-        //             },
-        //         ],
-        //     },
-        //     schemaChangePolicy: {
-        //         updateBehavior: 'UPDATE_IN_DATABASE',
-        //         deleteBehavior: 'LOG',
-        //     },
-        //     configuration: JSON.stringify({
-        //         Version: 1.0,
-        //         CrawlerOutput: {
-        //             Tables: { AddOrUpdateBehavior: 'MergeNewColumns' },
-        //         },
-        //     }),
-        // });
+        this.addSagemaker(this.mealRecommendationBucket)
 
+
+        this.addInferenceLambda(this.mealRecommendationBucket)
     }
-
 
 
     private addDataLakeProcessingLambda(bucket: Bucket, lakeStage: string) {
@@ -117,7 +77,8 @@ export class WeCookStack extends cdk.Stack {
         const lambdaFunction = new lambda.Function(this, `RecommendationLambda_${lakeStage}`, {
             functionName: `recommendation_Lambda_${lakeStage}`,
             runtime: lambda.Runtime.NODEJS_18_X,
-            memorySize: 2048,
+            memorySize: 8192,
+            timeout: Duration.minutes(10),
             handler: `index.handler`,
             code: lambda.Code.fromAsset(path.join(__dirname, `../src/lambda/${lakeStage}/dist`)),
             environment: {
@@ -136,10 +97,156 @@ export class WeCookStack extends cdk.Stack {
         );
 
 
+        const lambdaPolicy = new PolicyStatement()
+        // Permission to call bedrock models
+        lambdaPolicy.addActions("bedrock:InvokeModel")
+        lambdaPolicy.addResources(
+            `arn:aws:bedrock:*::foundation-model/*`,
+        )
 
-
-
-
+        lambdaFunction.addToRolePolicy(lambdaPolicy)
 
     }
+
+    private addSagemaker(existingBucket: Bucket) {
+        // Create a new VPC
+        const vpc = new ec2.Vpc(this, 'SageMakerVPC', {
+            maxAzs: 2,
+            natGateways: 1,
+        });
+
+        // Create IAM role for SageMaker
+        const sageMakerRole = new iam.Role(this, 'SageMakerExecutionRole', {
+            roleName: PhysicalName.GENERATE_IF_NEEDED,
+            assumedBy: new iam.CompositePrincipal(
+                new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+                new iam.ServicePrincipal('ec2.amazonaws.com')
+            ),
+            managedPolicies: [
+                iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerFullAccess'),
+            ],
+        });
+        // Grant SageMaker role access to the existing S3 bucket
+        existingBucket.grantRead(sageMakerRole);
+
+
+
+        // Modify the BucketDeployment to use PhysicalName.GENERATE_IF_NEEDED
+        new s3deploy.BucketDeployment(this, 'DeployNotebook', {
+            sources: [s3deploy.Source.asset(path.join(__dirname, '../src/sagemaker'))],
+            destinationBucket: existingBucket,
+            destinationKeyPrefix: 'notebook',
+            role: new iam.Role(this, 'BucketDeploymentRole', {
+                roleName: PhysicalName.GENERATE_IF_NEEDED,
+                assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+            }),
+        });
+
+
+        // Create SageMaker Domain
+        const domain = new sagemaker.CfnDomain(this, 'SageMakerDomain', {
+            authMode: 'IAM',
+            defaultUserSettings: {
+                executionRole: sageMakerRole.roleArn,
+            },
+            defaultSpaceSettings: {
+                executionRole: sageMakerRole.roleArn,
+                jupyterServerAppSettings: {
+                    defaultResourceSpec: {
+                        instanceType: 'system',
+                        sageMakerImageArn: 'arn:aws:sagemaker:us-east-1:081325390199:image/jupyter-server-3',
+                    },
+                },
+                kernelGatewayAppSettings: {
+                    defaultResourceSpec: {
+                        instanceType: 'ml.t3.medium',
+                        sageMakerImageArn: 'arn:aws:sagemaker:us-east-1:081325390199:image/sagemaker-data-science-311-v1',
+                    },
+                },
+            },
+            domainName: 'MySageMakerDomain',
+            vpcId: vpc.vpcId,
+            subnetIds: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_NAT }).subnetIds,
+            appNetworkAccessType: 'PublicInternetOnly',
+        });
+
+        // Create User Profile
+        new sagemaker.CfnUserProfile(this, 'DefaultUserProfile', {
+            domainId: domain.attrDomainId,
+            userProfileName: 'default-user',
+            userSettings: {
+                executionRole: sageMakerRole.roleArn,
+                jupyterServerAppSettings: {
+                    defaultResourceSpec: {
+                        instanceType: 'system',
+                        sageMakerImageArn: 'arn:aws:sagemaker:us-east-1:081325390199:image/jupyter-server-3',
+                    },
+                },
+                kernelGatewayAppSettings: {
+                    defaultResourceSpec: {
+                        instanceType: 'ml.t3.medium',
+                        sageMakerImageArn: 'arn:aws:sagemaker:us-east-1:081325390199:image/sagemaker-data-science-311-v1',
+                    },
+                },
+            },
+        });
+
+        // Create JupyterLab Space
+        new sagemaker.CfnSpace(this, 'JupyterLabSpace', {
+            domainId: domain.attrDomainId,
+            spaceName: 'MyJupyterLabSpace',
+            spaceSettings: {
+                jupyterServerAppSettings: {
+                    defaultResourceSpec: {
+                        instanceType: 'system',
+                        sageMakerImageArn: 'arn:aws:sagemaker:us-east-1:081325390199:image/jupyter-server-3',
+                    },
+                },
+            },
+        });
+
+        // Output the Domain ID and notebook location
+        new cdk.CfnOutput(this, 'SageMakerDomainId', {
+            value: domain.attrDomainId,
+            description: 'SageMaker Domain ID',
+        });
+
+        new cdk.CfnOutput(this, 'NotebookLocation', {
+            value: `s3://${existingBucket.bucketName}/notebook/`,
+            description: 'S3 location of the uploaded notebook',
+        });
+    }
+
+    private addInferenceLambda(bucket: Bucket) {
+        const inferenceFunction = new lambda.Function(this, 'InferenceLambda', {
+            functionName: 'meal-recommendation-inference',
+            runtime: lambda.Runtime.NODEJS_18_X,
+            handler: 'index.handler',
+            code: lambda.Code.fromAsset(path.join(__dirname, '../src/lambda/menu_inference')),
+            environment: {
+                PINECONE_ENVIRONMENT: 'https://menu-search-6qi9sdr.svc.aped-4627-b74a.pinecone.io',
+                PINECONE_API_KEY: 'e5d50c57-2444-498a-9c3d-e6cd2e3a57ad',
+                BUCKET_NAME: bucket.bucketName,
+            },
+            timeout: Duration.seconds(60),
+            memorySize: 2048,
+        });
+
+        // Create an API Gateway
+        const api = new apigateway.RestApi(this, 'MealRecommendationApi', {
+            restApiName: 'Meal Recommendation Service',
+        });
+
+        // Create a resource and method for the API
+        const searchResource = api.root.addResource('search');
+        searchResource.addMethod('GET', new apigateway.LambdaIntegration(inferenceFunction));
+
+        // Output the API URL
+        new cdk.CfnOutput(this, 'ApiUrl', {
+            value: api.url,
+            description: 'API Gateway URL',
+        });
+    }
+
+
 }
