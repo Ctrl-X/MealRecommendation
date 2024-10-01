@@ -1,6 +1,7 @@
 import {S3Handler} from 'aws-lambda';
 import * as AWS from 'aws-sdk';
 import * as XLSX from 'xlsx';
+import {WorkSheet} from "xlsx";
 
 const s3 = new AWS.S3();
 
@@ -32,6 +33,8 @@ export const handler: S3Handler = async (event) => {
             const csvFiles = ['menus.csv', 'users.csv', 'user_choices.csv', 'user_ingredient_preferences.csv', 'user_rating.csv'];
 
             let interactionData: string | null = null
+            let itemIdMap: Map<string, string> | null = null;
+
             for (let i = 0; i < sheets.length; i++) {
                 const sheetName = sheets[i];
                 let csvFileName: string | null = csvFiles[i];
@@ -43,14 +46,16 @@ export const handler: S3Handler = async (event) => {
 
                     switch (sheetName) {
                         case 'menus':
-                            csvData = formatMenus(worksheet);
+                            const result = formatMenus(worksheet);
+                            csvData = result.csvData;
+                            itemIdMap = result.itemIdMap;
                             break;
                         case 'users':
                             csvData = formatUsers(worksheet);
                             break;
                         case 'meal_customer ratings':
                             csvFileName = null
-                            const data = formatMealCustomerRatings(worksheet);
+                            const data = formatMealCustomerRatings(worksheet, itemIdMap);
                             if (interactionData) {
                                 interactionData = interactionData + "\n" + data
                                 csvData = interactionData
@@ -61,7 +66,7 @@ export const handler: S3Handler = async (event) => {
                             break;
                         case 'user_choices':
                             csvFileName = null
-                            const data2 = formatUserChoices(worksheet);
+                            const data2 = formatUserChoices(worksheet, itemIdMap);
                             if (interactionData) {
                                 interactionData = interactionData + "\n" + data2
                                 csvData = interactionData
@@ -101,15 +106,11 @@ export const handler: S3Handler = async (event) => {
 };
 
 // Function to format the "menus" sheet
-function formatMenus(worksheet: XLSX.WorkSheet): string {
-    // Convert the worksheet to JSON to easily manipulate the data
+function formatMenus(worksheet: XLSX.WorkSheet): { csvData: string; itemIdMap: Map<string, string> } {
     const jsonData: Array<Record<string, any>> = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
-
-    // Extract the first two rows for headers
     const firstHeaderRow = jsonData[0] as string[];
     const secondHeaderRow = jsonData[1] as string[];
 
-    // Determine final headers using a while loop
     const finalHeaders: string[] = [];
     let index = 0;
     let found = true;
@@ -123,15 +124,11 @@ function formatMenus(worksheet: XLSX.WorkSheet): string {
         } else if (header1) {
             finalHeaders.push(header1);
         } else {
-            found = false; // Stop if both headers are empty
+            found = false;
         }
         index++;
     }
 
-
-    console.log("finalHeaders", finalHeaders)
-
-    // Define the headers you want to keep and their new names
     const headersToKeep: Record<string, string> = {
         "Menu ID": "menu_id",
         "Menu Start Date": "CREATION_TIMESTAMP",
@@ -147,31 +144,40 @@ function formatMenus(worksheet: XLSX.WorkSheet): string {
         "gluten_free": "gluten_free"
     };
 
-    // Find the indices of the columns to keep
     const indicesToKeep = Object.keys(headersToKeep).map(header => finalHeaders.indexOf(header)).filter(index => index !== -1);
-
-    // Find indices of date columns to convert within the filtered columns
     const dateColumns = ["Menu Start Date"];
     const dateIndices = indicesToKeep.map((index, i) => dateColumns.includes(finalHeaders[index]) ? i : -1).filter(index => index !== -1);
 
-    // Filter and rename the data using reduce
+    const itemIdIndex = finalHeaders.indexOf("Item Id");
+    const mealNameIndex = finalHeaders.indexOf("Meal(En)");
+
+    const mealMap = new Map<string, string>();
+    const itemIdMap = new Map<string, string>();
+
     const processedData = jsonData.reduce((acc: any[][], row, rowIndex) => {
-        if (rowIndex === 1) return acc; // Skip the second row
+        if (rowIndex === 1) return acc;
 
         if (rowIndex === 0) {
-            acc.push(indicesToKeep.map(index => headersToKeep[finalHeaders[index] as keyof typeof headersToKeep])); // Use type assertion
+            acc.push(indicesToKeep.map(index => headersToKeep[finalHeaders[index] as keyof typeof headersToKeep]));
         } else {
-            const filteredRow = indicesToKeep.map(index => row[index]);
-            acc.push(convertDatesToUnix(filteredRow, dateIndices));
+            const itemId = row[itemIdIndex];
+            const mealName = row[mealNameIndex];
+
+            if (!mealMap.has(mealName)) {
+                mealMap.set(mealName, itemId);
+                const filteredRow = indicesToKeep.map(index => row[index]);
+                acc.push(convertDatesToUnix(filteredRow, dateIndices));
+            }
+
+            itemIdMap.set(itemId, mealMap.get(mealName)!);
         }
 
         return acc;
     }, []);
 
-    // Convert the filtered data back to a CSV string
     const csvData = processedData.map(row => row.join('\t')).join('\n');
 
-    return csvData;
+    return { csvData, itemIdMap };
 }
 
 
@@ -220,8 +226,7 @@ function formatUsers(worksheet: XLSX.WorkSheet): string {
 }
 
 
-// Function to format the "meal_customer ratings" sheet
-function formatMealCustomerRatings(worksheet: XLSX.WorkSheet): string {
+function formatMealCustomerRatings(worksheet: WorkSheet, itemIdMap: Map<string, string> | null): string {
     const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
     const headerRow = jsonData[0] as string[];
 
@@ -240,11 +245,19 @@ function formatMealCustomerRatings(worksheet: XLSX.WorkSheet): string {
 
     // Process the data rows
     const processedData = jsonData.slice(1).map(row => {
+        const originalItemId = row[menuItemIdIndex];
+        let deduplicatedItemId = originalItemId;
+
+        // Use the itemIdMap to get the deduplicated ITEM_ID if available
+        if (itemIdMap && itemIdMap.has(originalItemId)) {
+            deduplicatedItemId = itemIdMap.get(originalItemId)!;
+        }
+
         return [
             row[userIdIndex],
-            row[menuItemIdIndex],
+            deduplicatedItemId,
             "Watch",
-            row[ratingIndex]*20,
+            (parseFloat(row[ratingIndex]) * 20).toString(),
             dateStrToUnix(row[dateIndex])
         ];
     });
@@ -253,12 +266,12 @@ function formatMealCustomerRatings(worksheet: XLSX.WorkSheet): string {
     const finalData = [newHeader, ...processedData];
 
     // Convert the processed data back to a CSV string
-    const csvData = finalData.map(row => row.join(','))
+    const csvData = finalData.map(row => row.join(','));
     return csvData.join('\n');
 }
 
 // Function to format the "user_choices" sheet
-function formatUserChoices(worksheet: XLSX.WorkSheet): string {
+function formatUserChoices(worksheet: WorkSheet, itemIdMap: Map<string, string> | null): string {
     const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
     const headerRow = jsonData[0] as string[];
 
@@ -276,15 +289,25 @@ function formatUserChoices(worksheet: XLSX.WorkSheet): string {
     const newHeader = ["USER_ID", "ITEM_ID", "EVENT_TYPE", "EVENT_VALUE", "TIMESTAMP"];
 
     // Process the data rows
-    const processedData = jsonData.slice(1).filter(row => row[manualIndex] === '1').map(row => {
-        return [
-            row[userIdIndex],
-            row[menuItemIdIndex],
-            "Click",
-            "1",
-            dateStrToUnix(row[createdAtIndex])
-        ];
-    });
+    const processedData = jsonData.slice(1)
+        .filter(row => row[manualIndex] === '1')
+        .map(row => {
+            const originalItemId = row[menuItemIdIndex];
+            let deduplicatedItemId = originalItemId;
+
+            // Use the itemIdMap to get the deduplicated ITEM_ID if available
+            if (itemIdMap && itemIdMap.has(originalItemId)) {
+                deduplicatedItemId = itemIdMap.get(originalItemId)!;
+            }
+
+            return [
+                row[userIdIndex],
+                deduplicatedItemId,
+                "Click",
+                "1",
+                dateStrToUnix(row[createdAtIndex])
+            ];
+        });
 
     // Combine header and processed data
     const finalData = [newHeader, ...processedData];

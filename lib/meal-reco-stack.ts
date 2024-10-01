@@ -15,11 +15,14 @@ import {PhysicalName} from "aws-cdk-lib";
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 
 
+import * as amplify from 'aws-cdk-lib/aws-amplify';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+
 
 import {PolicyStatement} from "aws-cdk-lib/aws-iam";
 import {Duration} from "aws-cdk-lib";
 
-export class WeCookStack extends cdk.Stack {
+export class MealRecommendationStack extends cdk.Stack {
     public readonly mealRecommendationBucket: s3.Bucket;
 
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -35,6 +38,20 @@ export class WeCookStack extends cdk.Stack {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
             autoDeleteObjects: true,
         });
+
+        // Add bucket policy for Amazon Personalize
+        const bucketPolicy = new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            principals: [new iam.ServicePrincipal('personalize.amazonaws.com')],
+            actions: ['s3:GetObject', 's3:ListBucket'],
+            resources: [
+                this.mealRecommendationBucket.bucketArn,
+                `${this.mealRecommendationBucket.bucketArn}/*`
+            ],
+        });
+        this.mealRecommendationBucket.addToResourcePolicy(bucketPolicy);
+
+
 
         // Create temporary directory for deployment
         const tempDir = path.join(__dirname, 'temp');
@@ -68,6 +85,8 @@ export class WeCookStack extends cdk.Stack {
 
 
         this.addInferenceLambda(this.mealRecommendationBucket)
+
+        this.addFrontEnd();
     }
 
 
@@ -219,12 +238,11 @@ export class WeCookStack extends cdk.Stack {
 
     private addInferenceLambda(bucket: Bucket) {
         const inferenceFunction = new lambda.Function(this, 'InferenceLambda', {
-            functionName: 'meal-recommendation-inference',
+            functionName: 'recommendation_Lambda_meal_inference',
             runtime: lambda.Runtime.NODEJS_18_X,
             handler: 'index.handler',
             code: lambda.Code.fromAsset(path.join(__dirname, '../src/lambda/menu_inference')),
             environment: {
-                PINECONE_ENVIRONMENT: 'https://menu-search-6qi9sdr.svc.aped-4627-b74a.pinecone.io',
                 PINECONE_API_KEY: 'e5d50c57-2444-498a-9c3d-e6cd2e3a57ad',
                 BUCKET_NAME: bucket.bucketName,
             },
@@ -249,4 +267,48 @@ export class WeCookStack extends cdk.Stack {
     }
 
 
+    private addFrontEnd() {
+        // Create the Amplify app
+        const amplifyApp = new amplify.CfnApp(this, 'MealRecoWebApp', {
+            name: 'MealRecoWebApp',
+            repository: 'https://github.com/<your-github-username>/<your-repository-name>',
+            accessToken: secretsmanager.Secret.fromSecretNameV2(this, 'GitHubToken', 'github-access-token').secretValue.toString(),
+            buildSpec: JSON.stringify({
+                version: 1,
+                frontend: {
+                    phases: {
+                        preBuild: {
+                            commands: [
+                                'cd src/web',
+                                'npm ci'
+                            ]
+                        },
+                        build: {
+                            commands: [
+                                'npm run build'
+                            ]
+                        }
+                    },
+                    artifacts: {
+                        baseDirectory: 'src/web/build',
+                        files: ['**/*']
+                    }
+                }
+            })
+        });
+
+        // Add a branch for the main branch
+        const mainBranch = new amplify.CfnBranch(this, 'MainBranch', {
+            appId: amplifyApp.attrAppId,
+            branchName: 'main',
+            enableAutoBuild: true,
+            stage: 'PRODUCTION'
+        });
+
+        // Output the Amplify app URL
+        new cdk.CfnOutput(this, 'AmplifyAppURL', {
+            value: `https://${mainBranch.attrBranchName}.${amplifyApp.attrDefaultDomain}`,
+            description: 'URL of the Amplify app'
+        });
+    }
 }
