@@ -85,8 +85,6 @@ export class MealRecommendationStack extends cdk.Stack {
 
 
         this.addInferenceLambda(this.mealRecommendationBucket)
-
-        this.addFrontEnd();
     }
 
 
@@ -266,49 +264,4 @@ export class MealRecommendationStack extends cdk.Stack {
         });
     }
 
-
-    private addFrontEnd() {
-        // Create the Amplify app
-        const amplifyApp = new amplify.CfnApp(this, 'MealRecoWebApp', {
-            name: 'MealRecoWebApp',
-            repository: 'https://github.com/<your-github-username>/<your-repository-name>',
-            accessToken: secretsmanager.Secret.fromSecretNameV2(this, 'GitHubToken', 'github-access-token').secretValue.toString(),
-            buildSpec: JSON.stringify({
-                version: 1,
-                frontend: {
-                    phases: {
-                        preBuild: {
-                            commands: [
-                                'cd src/web',
-                                'npm ci'
-                            ]
-                        },
-                        build: {
-                            commands: [
-                                'npm run build'
-                            ]
-                        }
-                    },
-                    artifacts: {
-                        baseDirectory: 'src/web/build',
-                        files: ['**/*']
-                    }
-                }
-            })
-        });
-
-        // Add a branch for the main branch
-        const mainBranch = new amplify.CfnBranch(this, 'MainBranch', {
-            appId: amplifyApp.attrAppId,
-            branchName: 'main',
-            enableAutoBuild: true,
-            stage: 'PRODUCTION'
-        });
-
-        // Output the Amplify app URL
-        new cdk.CfnOutput(this, 'AmplifyAppURL', {
-            value: `https://${mainBranch.attrBranchName}.${amplifyApp.attrDefaultDomain}`,
-            description: 'URL of the Amplify app'
-        });
-    }
 }
