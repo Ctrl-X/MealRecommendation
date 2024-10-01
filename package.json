@@ -8,7 +8,7 @@
     "build:rawlambda": "cd src/lambda/raw && npm install && npm run build",
     "build:formatedlambda": "cd src/lambda/formated && npm install && npm run build",
     "build:cdk": "tsc",
-    "build": "npm run build:rawlambda && npm run build:formatedlambda && npm run build:cdk" ,
+    "build": "npm run build:rawlambda && npm run build:formatedlambda && npm run build:cdk",
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk"
@@ -23,6 +23,7 @@
     "typescript": "~5.5.3"
   },
   "dependencies": {
+    "antd": "^5.21.2",
     "aws-cdk-lib": "2.151.0",
     "constructs": "^10.0.0",
     "source-map-support": "^0.5.21"
