@@ -281,7 +281,7 @@ export class MealRecommendationStack extends cdk.Stack {
             handler: 'index.handler',
             code: lambda.Code.fromAsset(path.join(__dirname, '../src/lambda/menu_inference')),
             environment: {
-                PINECONE_API_KEY: 'e5d50c57-2444-498a-9c3d-e6cd2e3a57ad',
+                PINECONE_API_KEY: 'PUT-YOUR-PINECONE-KEY',
                 BUCKET_NAME: bucket.bucketName,
             },
             timeout: Duration.seconds(120),
