@@ -1,0 +1,26 @@
+.menu-comparator-table .ant-table-thead > tr > th,
+.menu-comparator-table .ant-table-tbody > tr > td {
+    max-width: 200px;
+    overflow: hidden;
+    text-align: center;
+}
+
+.menu-comparator-table .ant-table-thead > tr > th:first-child,
+.menu-comparator-table .ant-table-tbody > tr > td:first-child {
+    width: 100px;
+    max-width: 100px;
+}
+
+.menu-comparator-table .ant-table-tbody > tr:nth-child(odd) {
+    background-color: #e6f7ff;
+}
+
+.menu-comparator-table .ant-table-tbody > tr > td:not(:first-child) {
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+.menu-comparator-table .ant-table-tbody > tr:last-child > td {
+    white-space: normal;
+    word-wrap: break-word;
+}

@@ -1,7 +1,7 @@
 {
-  "name": "menu_inference",
+  "name": "api_users",
   "version": "1.0.0",
-  "description": "Menu inference using pinecone database",
+  "description": "Retrieve users from DynamoDB",
   "main": "index.ts",
   "scripts": {
     "build": "webpack"
@@ -9,8 +9,6 @@
   "author": "J. Coupez",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.658.1",
-    "@pinecone-database/pinecone": "^3.0.3",
     "aws-lambda": "^1.0.7",
     "aws-sdk": "^2.1691.0"
   },

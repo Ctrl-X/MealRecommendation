@@ -1,9 +1,9 @@
 import {S3Handler} from 'aws-lambda';
 import * as AWS from 'aws-sdk';
 import * as XLSX from 'xlsx';
-import {WorkSheet} from "xlsx";
 
 const s3 = new AWS.S3();
+
 
 export const handler: S3Handler = async (event) => {
     console.log('Event:', JSON.stringify(event, null, 2));
@@ -27,78 +27,57 @@ export const handler: S3Handler = async (event) => {
                 continue;
             }
 
-            const workbook = XLSX.read(data.Body as Buffer, {type: 'buffer'});
+            if (key.includes('rating')) {
+                let csvFileName: string | null = "ratings.csv"
+                let csvData = formatMealCustomerRatings(data.Body.toString());
+                await savefileToS3(bucket, csvFileName, csvData);
+            } else if (key.includes('choice')) {
+                let csvFileName: string | null = "ratings_choice.csv"
+                let csvData = formatUserChoices(data.Body.toString());
+                await savefileToS3(bucket, csvFileName, csvData);
+            } else if (key.includes('users')) {
+                let csvFileName: string | null = "users.csv"
+                let csvData = formatUsers(data.Body.toString());
+                await savefileToS3(bucket, csvFileName, csvData);
+            } else if (key.includes('xlsx')) {
+                const workbook = XLSX.read(data.Body as Buffer, {type: 'buffer'});
 
-            const sheets = ['menus', 'users', 'user_choices', 'user_ingredient_preferences', 'meal_customer ratings'];
-            const csvFiles = ['menus.csv', 'users.csv', 'user_choices.csv', 'user_ingredient_preferences.csv', 'user_rating.csv'];
-
-            let interactionData: string | null = null
-            let itemIdMap: Map<string, string> | null = null;
-
-            for (let i = 0; i < sheets.length; i++) {
-                const sheetName = sheets[i];
-                let csvFileName: string | null = csvFiles[i];
+                const sheets = ['menus'];
+                const csvFiles = ['menus.csv'];
+                //const sheets = ['menus', 'users', 'user_choices', 'user_ingredient_preferences', 'meal_customer ratings'];
+                //const csvFiles = ['menus.csv', 'users.csv', 'user_choices.csv', 'user_ingredient_preferences.csv', 'user_rating.csv'];
 
 
-                if (workbook.SheetNames.includes(sheetName)) {
-                    const worksheet = workbook.Sheets[sheetName];
-                    let csvData: string | null = null;
+                for (let i = 0; i < sheets.length; i++) {
+                    const sheetName = sheets[i];
+                    let csvFileName: string | null = csvFiles[i];
 
-                    switch (sheetName) {
-                        case 'menus':
-                            const result = formatMenus(worksheet);
-                            csvData = result.csvData;
-                            itemIdMap = result.itemIdMap;
-                            break;
-                        case 'users':
-                            csvData = formatUsers(worksheet);
-                            break;
-                        case 'meal_customer ratings':
-                            csvFileName = null
-                            const data = formatMealCustomerRatings(worksheet, itemIdMap);
-                            if (interactionData) {
-                                interactionData = interactionData + "\n" + data
-                                csvData = interactionData
-                                csvFileName = "rating.csv"
-                            } else {
-                                interactionData = data
-                            }
-                            break;
-                        case 'user_choices':
-                            csvFileName = null
-                            const data2 = formatUserChoices(worksheet, itemIdMap);
-                            if (interactionData) {
-                                interactionData = interactionData + "\n" + data2
-                                csvData = interactionData
-                                csvFileName = "rating.csv"
-                            } else {
-                                interactionData = data2
-                            }
-                            break;
-                        case 'user_ingredient_preferences':
-                            csvData = formatUserIngredientsPreference(worksheet);
-                            break;
-                        default:
-                            console.log(`No formatting function for sheet: ${sheetName}`);
-                            csvFileName = null
-                            continue;
+
+                    if (workbook.SheetNames.includes(sheetName)) {
+                        const worksheet = workbook.Sheets[sheetName];
+                        let csvData: string | null = null;
+
+                        switch (sheetName) {
+                            case 'menus':
+                                const result = formatMenus(worksheet);
+                                csvData = result.csvData;
+                                break;
+                            default:
+                                console.log(`No formatting function for sheet: ${sheetName}`);
+                                csvFileName = null
+                                continue;
+                        }
+                        if (csvFileName && csvData) {
+
+                            await savefileToS3(bucket, csvFileName, csvData);
+                        }
+                    } else {
+                        console.log(`Sheet ${sheetName} not found in the Excel file.`);
                     }
-
-                    if (csvFileName && csvData) {
-
-                        const uploadParams = {
-                            Bucket: bucket,
-                            Key: `data/formated/${csvFileName}`,
-                            Body: csvData,
-                            ContentType: 'text/csv',
-                        };
-                        await s3.putObject(uploadParams).promise();
-                        console.log(`Uploaded ${csvFileName} to ${bucket}/data/formated`);
-                    }
-                } else {
-                    console.log(`Sheet ${sheetName} not found in the Excel file.`);
                 }
             }
+
+
         } catch (error) {
             console.error('Error processing file:', error);
         }
@@ -106,7 +85,7 @@ export const handler: S3Handler = async (event) => {
 };
 
 // Function to format the "menus" sheet
-function formatMenus(worksheet: XLSX.WorkSheet): { csvData: string; itemIdMap: Map<string, string> } {
+function formatMenus(worksheet: XLSX.WorkSheet): { csvData: string } {
     const jsonData: Array<Record<string, any>> = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
     const firstHeaderRow = jsonData[0] as string[];
     const secondHeaderRow = jsonData[1] as string[];
@@ -135,8 +114,6 @@ function formatMenus(worksheet: XLSX.WorkSheet): { csvData: string; itemIdMap: M
         "Item Id": "ITEM_ID",
         "Meal Id": "meal_id",
         "Meal(En)": "Meal",
-        "Food Costing per Sides in $": "FoodCost",
-        "Labor Costing per Sides in $": "LaborCost",
         "Ingredients(En)": "Ingredients",
         "Allergens Contains(En)": "AllergensContains",
         "Allergens May Contains(En)": "AllergensMayContains",
@@ -151,39 +128,55 @@ function formatMenus(worksheet: XLSX.WorkSheet): { csvData: string; itemIdMap: M
     const itemIdIndex = finalHeaders.indexOf("Item Id");
     const mealNameIndex = finalHeaders.indexOf("Meal(En)");
 
-    const mealMap = new Map<string, string>();
-    const itemIdMap = new Map<string, string>();
+    console.log("formatMenus headerRow", headersToKeep)
+
+
+    const mealMap = new Map<string, any[]>();
 
     const processedData = jsonData.reduce((acc: any[][], row, rowIndex) => {
         if (rowIndex === 1) return acc;
 
         if (rowIndex === 0) {
-            acc.push(indicesToKeep.map(index => headersToKeep[finalHeaders[index] as keyof typeof headersToKeep]));
+            const newHeader = indicesToKeep.map(index => headersToKeep[finalHeaders[index] as keyof typeof headersToKeep]);
+            newHeader.push("otherItemIds")
+            acc.push(newHeader);
         } else {
             const itemId = row[itemIdIndex];
             const mealName = row[mealNameIndex];
 
-            if (!mealMap.has(mealName)) {
-                mealMap.set(mealName, itemId);
+            const existingMenu = mealMap.get(mealName)
+
+            if (!existingMenu) {
                 const filteredRow = indicesToKeep.map(index => row[index]);
-                acc.push(convertDatesToUnix(filteredRow, dateIndices));
+                filteredRow.push(itemId)
+                const line = convertDatesToUnix(filteredRow, dateIndices)
+                mealMap.set(mealName, line);
+                acc.push(line);
+            } else {
+                const itemIds = existingMenu.pop()
+                existingMenu.push(itemIds + "|" + itemId)
             }
-
-            itemIdMap.set(itemId, mealMap.get(mealName)!);
         }
-
         return acc;
     }, []);
 
     const csvData = processedData.map(row => row.join('\t')).join('\n');
 
-    return { csvData, itemIdMap };
+    return {csvData};
 }
 
 
-function formatUsers(worksheet: XLSX.WorkSheet): string {
-    // Convert the worksheet to JSON to easily manipulate the data
-    const jsonData: Array<Record<string, any>> = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+function formatUsers(fileContent: string): string {
+    const preprocessCSV = (fileContent: string): string => {
+        return fileContent.replace(/"[^"]*"/g, (match) => {
+            return match.replace(/,/g, '');
+        });
+    };
+
+    const preprocessedContent = preprocessCSV(fileContent);
+    const rows = preprocessedContent.split('\n');
+
+
 
     // Define the headers you want to keep
     const headersToKeep = [
@@ -200,22 +193,24 @@ function formatUsers(worksheet: XLSX.WorkSheet): string {
     ];
 
     // Extract the header row and find the indices of the columns to keep
-    const headerRow = jsonData[0] as string[];
+    const headerRow = rows[0].split(',');
     const indicesToKeep = headersToKeep.map(header => headerRow.indexOf(header)).filter(index => index !== -1);
-    console.log("headerRow", headerRow)
+    console.log("formatUsers headerRow", headerRow)
     console.log("indicesToKeep", indicesToKeep)
     // Find indices of date columns to convert
     const dateColumns = ['last_login_at', 'created_at', 'subscribed_at'];
     const dateIndices = dateColumns.map(header => headersToKeep.indexOf(header)).filter(index => index !== -1);
-    console.log("dateIndices for dateIndices", dateIndices)
+    //console.log("dateIndices for dateIndices", dateIndices)
 
 
     // Filter the data to keep only the desired columns and convert dates
-    const processedData = jsonData.map((row, rowIndex) => {
+    const processedData = rows.map((line, rowIndex) => {
+        const row = line.split(',');
         if (rowIndex === 0)
             return indicesToKeep.map(index => row[index]); // Return header row as is
 
         const filteredRow = indicesToKeep.map(index => row[index]);
+
         return convertDatesToUnix(filteredRow, dateIndices);
     });
 
@@ -226,9 +221,9 @@ function formatUsers(worksheet: XLSX.WorkSheet): string {
 }
 
 
-function formatMealCustomerRatings(worksheet: WorkSheet, itemIdMap: Map<string, string> | null): string {
-    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
-    const headerRow = jsonData[0] as string[];
+function formatMealCustomerRatings(fileContent: string): string {
+    const rows = fileContent.split('\r\n');
+    const headerRow = rows[0].split(',');
 
     // Find indices of required columns
     const userIdIndex = headerRow.indexOf("user_id");
@@ -236,44 +231,42 @@ function formatMealCustomerRatings(worksheet: WorkSheet, itemIdMap: Map<string, 
     const ratingIndex = headerRow.indexOf("rating");
     const dateIndex = headerRow.indexOf("date");
 
+
     if (userIdIndex === -1 || menuItemIdIndex === -1 || ratingIndex === -1 || dateIndex === -1) {
-        throw new Error('One or more required columns were not found in the worksheet.');
+        throw new Error('formatMealCustomerRatings One or more required columns were not found in the worksheet.');
     }
 
     // Create new header row
-    const newHeader = ["USER_ID", "ITEM_ID", "EVENT_TYPE", "EVENT_VALUE", "TIMESTAMP"];
+    const newHeader: string[] = ["USER_ID", "ITEM_ID", "EVENT_TYPE", "EVENT_VALUE", "TIMESTAMP", "LIKED"];
 
     // Process the data rows
-    const processedData = jsonData.slice(1).map(row => {
-        const originalItemId = row[menuItemIdIndex];
-        let deduplicatedItemId = originalItemId;
+    const processedData = rows.slice(1).map(line => {
+        const row = line.split(',');
 
-        // Use the itemIdMap to get the deduplicated ITEM_ID if available
-        if (itemIdMap && itemIdMap.has(originalItemId)) {
-            deduplicatedItemId = itemIdMap.get(originalItemId)!;
-        }
+        const itemId = row[menuItemIdIndex];
+        const rating = parseInt(row[ratingIndex])
+
+        if(!itemId)
+            return []
 
         return [
             row[userIdIndex],
-            deduplicatedItemId,
+            itemId,
             "Watch",
-            (parseFloat(row[ratingIndex]) * 20).toString(),
-            dateStrToUnix(row[dateIndex])
+            (rating * 20).toString(), /* convert the rating from 0 to 100*/
+            dateStrToUnix(row[dateIndex]),
+            rating > 3 ? 1 : 0
         ];
     });
 
-    // Combine header and processed data
-    const finalData = [newHeader, ...processedData];
-
-    // Convert the processed data back to a CSV string
-    const csvData = finalData.map(row => row.join(','));
-    return csvData.join('\n');
+    const csvData = [newHeader, ...processedData].map(row => row.join(',')).join('\n');
+    return csvData
 }
 
 // Function to format the "user_choices" sheet
-function formatUserChoices(worksheet: WorkSheet, itemIdMap: Map<string, string> | null): string {
-    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, {header: 1, raw: false});
-    const headerRow = jsonData[0] as string[];
+function formatUserChoices(fileContent: string): string {
+    const rows = fileContent.split('\n');
+    const headerRow = rows[0].split(',');
 
     // Find indices of required columns
     const userIdIndex = headerRow.indexOf("user_id");
@@ -286,35 +279,31 @@ function formatUserChoices(worksheet: WorkSheet, itemIdMap: Map<string, string> 
     }
 
     // Create new header row
-    const newHeader = ["USER_ID", "ITEM_ID", "EVENT_TYPE", "EVENT_VALUE", "TIMESTAMP"];
+    const newHeader: string[] = ["USER_ID", "ITEM_ID", "EVENT_TYPE", "EVENT_VALUE", "TIMESTAMP", "LIKED"];
+
+    const parsedRows = rows.slice(1).map(line => line.split(',')) // split each line
 
     // Process the data rows
-    const processedData = jsonData.slice(1)
-        .filter(row => row[manualIndex] === '1')
+    const processedData = parsedRows
+        .filter( row => {
+            return row[manualIndex] === 'true'
+        })
         .map(row => {
-            const originalItemId = row[menuItemIdIndex];
-            let deduplicatedItemId = originalItemId;
-
-            // Use the itemIdMap to get the deduplicated ITEM_ID if available
-            if (itemIdMap && itemIdMap.has(originalItemId)) {
-                deduplicatedItemId = itemIdMap.get(originalItemId)!;
-            }
-
+            const itemId = row[menuItemIdIndex];
             return [
                 row[userIdIndex],
-                deduplicatedItemId,
+                itemId,
                 "Click",
                 "1",
-                dateStrToUnix(row[createdAtIndex])
+                dateStrToUnix(row[createdAtIndex]),
+                1
             ];
         });
 
     // Combine header and processed data
-    const finalData = [newHeader, ...processedData];
 
-    // Convert the processed data back to a CSV string
-    const csvData = finalData.map(row => row.join(',')).join('\n');
-    return csvData;
+    const csvData = [newHeader, ...processedData].map(row => row.join(',')).join('\n');
+    return csvData
 }
 
 function formatUserIngredientsPreference(worksheet: XLSX.WorkSheet): string {
@@ -351,4 +340,15 @@ function excelDateToUnix(excelDate: number): number {
 function dateStrToUnix(dateStr: string): number {
     const date = new Date(dateStr);
     return Math.floor(date.getTime() / 1000); // Convert to Unix timestamp in seconds
+}
+
+async function savefileToS3(bucket: string, csvFileName: string, csvData: string) {
+    const uploadParams = {
+        Bucket: bucket,
+        Key: `data/formated/${csvFileName}`,
+        Body: csvData,
+        ContentType: 'text/csv',
+    };
+    await s3.putObject(uploadParams).promise();
+    console.log(`Uploaded ${csvFileName} to ${bucket}/data/formated`);
 }

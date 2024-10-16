@@ -1,5 +1,13 @@
 # Welcome to Menu Recommendation engine
 
+## TODO : 
+- refaire un cdk deploy car j'ai modifie la gestion des ratings
+- les menus fonctionne
+- tester les users
+- tester les ratings ( choice + rating)
+- supprimer l'index pinecone
+- rebatir l'index pinecone
+- sauvegarder les ingredinets dans la table ingredient
 
 
 ## Description

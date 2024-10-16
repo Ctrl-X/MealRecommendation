@@ -2,6 +2,7 @@ import {S3Handler} from 'aws-lambda';
 import {S3} from 'aws-sdk';
 import * as menus from './menus';
 import * as users from './users';
+import * as ratings from './ratings';
 
 const s3 = new S3();
 
@@ -16,7 +17,6 @@ export const handler: S3Handler = async (event) => {
                 Bucket: bucket,
                 Key: key,
             };
-            let destFilename = ""
 
             const data = await s3.getObject(params).promise();
 
@@ -25,29 +25,16 @@ export const handler: S3Handler = async (event) => {
                 continue;
             }
 
-            let csvData;
             if (key.includes('menus.csv')) {
-                csvData = await menus.curatingData(data.Body.toString());
-                destFilename = "menus.csv"
+                await menus.saveData(data.Body.toString());
             } else if (key.includes('users.csv')) {
-                csvData = users.curatingData(data.Body.toString());
-                destFilename = "users.csv"
+                await users.saveData(data.Body.toString());
             } else if (key.includes('rating')) {
-                csvData = data.Body.toString();
-                const rand = Math.round(Math.random() * 1000)
-                destFilename = "ratings_" + rand + ".csv"
+                await ratings.saveData(data.Body.toString());
             } else {
                 console.log(`Unsupported file: ${key}`);
                 continue;
             }
-
-            const uploadParams = {
-                Bucket: bucket,
-                Key: `data/curated/${destFilename}`,
-                Body: csvData,
-                ContentType: 'text/csv',
-            };
-            await s3.putObject(uploadParams).promise();
 
         } catch (error) {
             console.error('Error processing file:', error);

@@ -10,18 +10,20 @@ export async function curatingData(fileContent: string): Promise<string> {
     console.log("headers", sourceheaders)
     const indexIdIndex = sourceheaders.indexOf('ITEM_ID');
     const creationIndex = sourceheaders.indexOf('CREATION_TIMESTAMP');
-    const foodCostIndex = sourceheaders.indexOf('FoodCost');
-    const laborCostIndex = sourceheaders.indexOf('LaborCost');
+    //const foodCostIndex = sourceheaders.indexOf('FoodCost');
+    //const laborCostIndex = sourceheaders.indexOf('LaborCost');
     const mealNameIndex = sourceheaders.indexOf('Meal');
     const ingredientsIndex = sourceheaders.indexOf('Ingredients');
+    const otherItemIdsIndex = sourceheaders.indexOf('otherItemIds');
 
-    if (mealNameIndex === -1 || foodCostIndex === -1 || laborCostIndex === -1 || ingredientsIndex === -1) {
-        throw new Error('Required columns "FoodCost", "LaborCost", or "Ingredients" not found.');
+    if (mealNameIndex === -1 || ingredientsIndex === -1) {
+        throw new Error('Required columns "Name", or "Ingredients" not found.');
     }
 
     // Add "TotalCost" to the headers
     const headers: string[] = []
-    headers.push('ITEM_ID', 'PRICE', 'CREATION_TIMESTAMP', 'NAME', 'GENRES', 'GENRE_L2', 'GENRE_L3', 'PRODUCT_DESCRIPTION', 'CONTENT_CLASSIFICATION');
+    //headers.push('ITEM_ID', 'PRICE', 'CREATION_TIMESTAMP', 'NAME', 'GENRES', 'GENRE_L2', 'GENRE_L3', 'PRODUCT_DESCRIPTION', 'CONTENT_CLASSIFICATION');
+    headers.push('ITEM_ID','PRICE', 'CREATION_TIMESTAMP', 'NAME',  'GENRES', 'GENRE_L2', 'GENRE_L3', 'PRODUCT_DESCRIPTION', 'CONTENT_CLASSIFICATION', 'OTHERIDS');
     rows.shift() // removing header
 
     // Process each row to calculate "TotalCost"
@@ -31,9 +33,10 @@ export async function curatingData(fileContent: string): Promise<string> {
         const existingColumns = row.split('\t');
         const indexId = parseFloat(existingColumns[indexIdIndex]);
         const creation = parseFloat(existingColumns[creationIndex]);
-        const foodCost = parseFloat(existingColumns[foodCostIndex]);
-        const laborCost = parseFloat(existingColumns[laborCostIndex]);
-        const totalCost = (foodCost || 0) + (laborCost || 0);
+        //const foodCost = parseFloat(existingColumns[foodCostIndex]);
+        //const laborCost = parseFloat(existingColumns[laborCostIndex]);
+        // const totalCost = (foodCost || 0) + (laborCost || 0);
+        const totalCost =  0;
         columns.push(indexId);
         columns.push(totalCost.toFixed(2));
         columns.push(creation);
@@ -45,10 +48,11 @@ export async function curatingData(fileContent: string): Promise<string> {
         columns.push(parsedIngredients.GENRES || '');
         columns.push(parsedIngredients.GENRE_L2 || '');
         columns.push(parsedIngredients.GENRE_L3 || '');
-        let product_Description = mealName + " " + parsedIngredients.other.join(" ") || ' ';
-        product_Description = product_Description.replace(/,/g, ' ')
+        let product_Description = parsedIngredients.other.join("|") || ' ';
+        //product_Description = product_Description.replace(/,/g, ' ')
         columns.push(product_Description);
         columns.push(parsedIngredients.CONTENT_CLASSIFICATION || 'none');
+        columns.push(existingColumns[otherItemIdsIndex]);
 
         return columns.join(',');
     }));

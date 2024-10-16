@@ -4,7 +4,7 @@ import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedroc
 const bedrockClient = new BedrockRuntimeClient({ region: "us-east-1" })
 
 
-async function callBedrock(prompt:string, dataset: string,  modelId: string = "anthropic.claude-3-haiku-20240307-v1:0") {
+async function callBedrock(prompt:string, dataset: string,temperature: number = 0,  modelId: string = "anthropic.claude-3-haiku-20240307-v1:0") {
 
     // modelId= "anthropic.claude-3-sonnet-20240229-v1:0",
     //modelId= "anthropic.claude-3-5-sonnet-20240620-v1:0";
@@ -16,7 +16,7 @@ async function callBedrock(prompt:string, dataset: string,  modelId: string = "a
         body: JSON.stringify({
             anthropic_version: "bedrock-2023-05-31",
             max_tokens: 2048,
-            temperature: 0,
+            temperature: temperature,
             messages: [
                 {
                     role: "user",
@@ -59,6 +59,41 @@ async function callBedrock(prompt:string, dataset: string,  modelId: string = "a
                 error: err.message
             })
         }
+    }
+}
+
+export async function generateImageWithTitan(description: string): Promise<string> {
+    const params = {
+        modelId: "amazon.titan-image-generator-v2:0",
+        contentType: "application/json",
+        accept: "application/json",
+        body: JSON.stringify({
+            taskType: "TEXT_IMAGE",
+            textToImageParams: {
+                text: "Create a photo realistic picture of a meal like in recipe book. The meal is : " + description
+            },
+            imageGenerationConfig: {
+                numberOfImages: 1,
+                quality: "standard",
+                cfgScale: 8.0,
+                seed: Math.floor(Math.random() * 1000000)
+            }
+        })
+    };
+
+    try {
+        const command = new InvokeModelCommand(params);
+        const response = await bedrockClient.send(command);
+        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+
+        if (responseBody.images && responseBody.images.length > 0) {
+            return responseBody.images[0];
+        } else {
+            throw new Error("No image generated");
+        }
+    } catch (err: any) {
+        console.error("Error invoking Titan Image Generator:", err);
+        throw err;
     }
 }
 
