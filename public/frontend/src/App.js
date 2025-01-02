@@ -51,9 +51,6 @@ const App = () => {
         <Router>
             <Layout>
                 <Header style={{display: 'flex', alignItems: 'center'}}>
-                    <div className="demo-logo">
-                        <img src={logo} alt="AWS Logo"/>
-                    </div>
                     <Menu
                         theme="dark"
                         mode="horizontal"
@@ -65,9 +62,6 @@ const App = () => {
                         <Menu.Item key="3"><Link to="/ingredients">By Ingredients</Link></Menu.Item>
                     </Menu>
                 </Header>
-                <Alert
-                    message={<span><b>Disclaimer</b>: This project is a demonstration / proof-of-concept and is not intended for use in production environments. It is provided as-is, without warranty or guarantee of any kind. The code and any accompanying materials are for educational, testing, or evaluation purposes only.</span>}
-                    type="warning"/>
                 <Content style={{padding: '0 48px'}}>
                     <Breadcrumb
                         style={{
