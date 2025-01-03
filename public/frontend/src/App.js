@@ -59,7 +59,6 @@ const App = () => {
                     >
                         <Menu.Item key="1"><Link to="/">Menu Recommendation</Link></Menu.Item>
                         <Menu.Item key="2"><Link to="/menus">Menu Prediction</Link></Menu.Item>
-                        { // <Menu.Item key="3"><Link to="/ingredients">By Ingredients</Link></Menu.Item> }
                     </Menu>
                 </Header>
                 <Content style={{padding: '0 48px'}}>
@@ -86,7 +85,6 @@ const App = () => {
                             <Routes>
                                 <Route path="/" element={<UsersPage apiRootUrl={apiRootUrl} totalUsers={totalUsers} allMenus={allMenus}/>}/>
                                 <Route path="/menus" element={<MenusPage apiRootUrl={apiRootUrl}  totalUsers={totalUsers} allMenus={allMenus} />}/>
-                                <Route path="/ingredients" element={<IngredientsPage apiRootUrl={apiRootUrl}  totalUsers={totalUsers} allMenus={allMenus}/>}/>
                             </Routes>
                         </div>
                     </Layout>
