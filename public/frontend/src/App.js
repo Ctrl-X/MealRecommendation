@@ -57,9 +57,9 @@ const App = () => {
                         defaultSelectedKeys={['1']}
                         style={{flex: 1, minWidth: 0}}
                     >
-                        <Menu.Item key="1"><Link to="/">By Users</Link></Menu.Item>
-                        <Menu.Item key="2"><Link to="/menus">By Menus</Link></Menu.Item>
-                        <Menu.Item key="3"><Link to="/ingredients">By Ingredients</Link></Menu.Item>
+                        <Menu.Item key="1"><Link to="/">Menu Recommendation</Link></Menu.Item>
+                        <Menu.Item key="2"><Link to="/menus">Menu Prediction</Link></Menu.Item>
+                        <!-- <Menu.Item key="3"><Link to="/ingredients">By Ingredients</Link></Menu.Item> -->
                     </Menu>
                 </Header>
                 <Content style={{padding: '0 48px'}}>
